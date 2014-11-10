@@ -5,16 +5,23 @@
  * Current Actions
  * 1 - Verify
  * 2 - Publish
+ * 3 - getCategories
  */
 
 
 class Publishthis_Endpoint {
 	private $obj_api;
 	private $obj_publish;
+	
+	private $response_data;
+
 
 	function __construct() {
 		$this->obj_api = new Publishthis_API();
 		$this->obj_publish = new Publishthis_Publish();
+
+		$this->response_data=array();
+		
 	}
 
 	/**
@@ -38,6 +45,7 @@ class Publishthis_Endpoint {
 
 		$obj->success = false;
 		$obj->errorMessage = $this->escapeJsonString( $message );
+		
 
 		$this->sendJSON( $obj );
 	}
@@ -50,6 +58,11 @@ class Publishthis_Endpoint {
 
 		$obj->success = true;
 		$obj->errorMessage = null;
+		
+		foreach ($this->response_data as $key => $data)
+		{
+			$obj->$key = $data;
+		}
 
 		$this->sendJSON( $obj );
 	}
@@ -145,6 +158,25 @@ class Publishthis_Endpoint {
 		return;
 	}	
 
+
+	/**
+	 * GetCategories endpoint action
+	 */
+	private function actionGetCategories( $parent_name ) {
+	
+		//$name = 'publish_this_categories';
+		$myvoc = taxonomy_vocabulary_machine_name_load($parent_name);
+		$tree = taxonomy_get_tree($myvoc->vid);
+	
+
+		foreach ($tree as $cat) {
+			$mycat=array('id' => $cat->tid, 'name' => $cat->name);
+			array_push ($this->response_data['categories'], $mycat);
+		}
+		
+		return;
+	}
+	
 	/**
 	 * Process request main function
 	 */
@@ -172,6 +204,18 @@ class Publishthis_Endpoint {
 				$feedId = intval( $arrEndPoint["feedId"], 10 );
 				$this->actionPublish( $feedId );
 				break;
+
+				case "getCategories":
+					if( false ) {
+						$this->sendFailure( "getCategories not supported" );
+						return;
+					}
+
+					$this->response_data['categories']= array();
+					$this->actionGetCategories('publish_this_categories');
+
+					$this->sendSuccess( "categories fetched" );
+					break;
 
 			default:
 				$this->sendFailure( "Empty or bad request made to endpoint" );
