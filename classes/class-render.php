@@ -160,8 +160,8 @@ class Publishthis_Render {
 	 */
 	function display_text() {
 		$html = '';
-		$html .= balanceTags ( '<p class="pt-text">' . $this->pt_content->text . '</p>', true );
-
+		//$html .= balanceTags ( '<p class="pt-text">' . $this->pt_content->text . '</p>', true );
+		$html .= check_markup( '<p class="pt-text">' . $this->pt_content->text . '</p>' );
 		$html .= "";
 		return $html;
 	}

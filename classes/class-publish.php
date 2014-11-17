@@ -11,7 +11,6 @@ class Publishthis_Publish {
 	*/
 	function __construct() {
 		$this->pt_settings = unserialize(variable_get('pt_settings'));
-
 		$this->obj_api  = new Publishthis_API();
 		$this->obj_render = new Publishthis_Render();
 		$this->obj_utils = new Publishthis_Utils();
@@ -171,44 +170,85 @@ class Publishthis_Publish {
 			$posts_updated = $posts_inserted = $posts_deleted = $posts_skipped = 0;
 
 			$feed_id = $feed['feedId'];
+			
 			$feed_meta = array( "displayName" => $feed['displayName'] );
-
+			
+			//$post_type = $action_meta['post_type'];
+            
+			//Here wordpress module checks for format = individual
 			$curated_content = $this->obj_api->get_section_content ( $feed_id, $action_meta['template_section'] );
 			if ( empty ( $curated_content ) ) {
 				return;
 			}
-
+			//Here wordpress module checks for format=combined
+			
 			// Unique set name
 			$set_name = '_publishthis_set_' . $action_meta['feed_template'] . '_' . $action_meta['template_section'] . '_' . $feed_id;
 
-			$arrPostCategoryNames = array();
+			
 
 			$result_list = $this->obj_api->get_custom_data_by_feed_id ( $feed_id, array () );
-			$custom_data = $managerCategories = array();
+			
+			// Categorize
+			// map categories from custom data in a Feed to categories in drupal
+			
+			$arrPostCategoryNames = array();
+			$custom_data = $managerCategories = $tags = array();
 			$action_meta['ptauthors'] = null;
+			
+			// GET POST CATEGORIES AUTHORS TAGS
+			//$custom_data[*] set by shorttags in api response
 			foreach ( $result_list as $result ) {
-				if( strtoupper( $result->type ) != 'CMS' && isset($result->value) && !empty($result->value) ) {
+				$custom_data[$result->shortCode] = $result->value;
+				
+				switch ( strtoupper( $result->type )) {
+					case 'CMS' :
+						break;
+					case 'AUTHORS' :
+						foreach ($result->value as $author) {
+							$custom_data['ptauthors']=$author->id; //last id wins
+						}
+						//if an author is not configured in the admin, and we're given an author id, use it. 
+						//$this->obj_api->_log_message( array( 'message' => 'Found Author in API', 'status' => 'info', 'details' => "action_meta[ptauthors]: ". $action_meta['ptauthors'] . ", custom_data[ptauthors]" . $custom_data['ptauthors']), "2" );
+						if (( (isset($custom_data['ptauthors'])) && (!empty($custom_data['ptauthors'])) && ($custom_data['ptauthors'] > 0)) 
+							&& ((!isset($action_meta['publish_author']) || empty($action_meta['publish_author']) || ($action_meta['publish_author']) < 1) )){
+							$action_meta['ptauthors']=$custom_data['ptauthors'];  
+						} else {
+							$action_meta['ptauthors']=$action_meta['publish_author'];
+						}
+						break;
+					case 'TAGS' :
+						foreach ($result->value as $tag) {
+							array_push($tags, array(
+									'type' => $tag->type, 
+									'displayName' => $tag->displayName,
+									'text' => $tag->text
+								) );
+						}
+						break;
+					case 'CATEGORIES' :
+						foreach ($result->value as $category) {
+							$arrPostCategoryNames[$category->id] = $category->categoryName;
+						}
+						$tmp_category_names = array_values($arrPostCategoryNames);
+						//$this->obj_api->_log_message( array( 'message' => 'Found categories in API response', 'status' => 'info', 'details' => implode( ",", $tmp_category_names ) ), "2" );
+						
+						break;
+					default :
+						$managerCategories[] = $result->value;
+						break;
+
+				}
+			}
+			/*	if( strtoupper( $result->type ) != 'CMS' && isset($result->value) && !empty($result->value) ) {
 					$custom_data[$result->shortCode] = $result->value;
 
 					if ( !in_array( $result->shortCode, array( 'ptauthors', 'ptcategories', 'pttags' ) ) ) {
 						$managerCategories[] = $result->value;
 					}
-				}				
-			}
-					
-			// Categorize
-			// map categories from custom data in a Feed to categories in wordpress
-			if ( !empty($action_meta['action_category']) ) {
-				if ( isset( $custom_data[ $action_meta['action_category'] ] ) ) {
-					$strCategoryValue = $custom_data[ $action_meta['action_category'] ];
-
-					foreach ( explode( ',', $strCategoryValue ) as $category ) {
-						$arrPostCategoryNames[] = $category;
-					}
 				}
-
-				$this->obj_api->_log_message( array( 'message' => 'Trying to map to categories', 'status' => 'info', 'details' => implode( ",", $managerCategories ) ), "2" );
-			}
+			*/			
+					
 
 			// Combined mode selected - all imported content in single item
 			if ( $action_meta['format_type'] == 'Digest' ) {
@@ -284,6 +324,8 @@ class Publishthis_Publish {
 	private function _update_content( $nid, $feed_id, $set_name, $docid, $arrPostCategoryNames, $curated_content, $content_features ) {
 		$body_text = '';
 
+		//print "<pre> content_features:"; print_r($content_features); print "</pre>\n";
+		
 		//if don't add new node
 		if( $content_features['ind_add_posts']=='0' && empty($nid) && $content_features['format_type'] == 'Individual' ) return;
 
@@ -322,7 +364,8 @@ class Publishthis_Publish {
 		$node->type = $content_features['content_type'];
 		node_object_prepare($node);
 
-		$node->uid = $content_features['publish_author'];
+		//$node->uid = $content_features['publish_author'];
+		$node->uid = $content_features['ptauthors'];
 		$node->status = $content_features['content_status'];
 		$node->language = LANGUAGE_NONE;
 		$node->is_new = empty($nid) ? TRUE : FALSE;
@@ -411,12 +454,23 @@ class Publishthis_Publish {
 		}
 
 		//Categorize content
-		foreach( $arrPostCategoryNames as $key=>$category ) {
-			$search_category = taxonomy_get_term_by_name($category, $content_features['taxonomy_group']);
-			if( $search_category ) {
-				$term = array_shift( $search_category );
-				$node->field_tags[$node->language][$key]['tid'] = intval($term->tid);
-				$node->field_tags[$node->language][$key]['vid'] = intval($term->vid);
+		if ( isset($content_features['content_type']) && (!empty($content_features['content_type'])))
+		{
+			//find the right field to update
+			$category_field_machine_name = $this->get_category_field_name($content_features['content_type'], "category");
+				
+			foreach( $arrPostCategoryNames as $key => $category ) {
+				$search_category = taxonomy_get_term_by_name($category, $content_features['taxonomy_group']);
+				if( $search_category ) {
+					$term = array_shift( $search_category );
+					
+					$node->{$category_field_machine_name}[$node->language][0]['tid'] = intval($term->tid);
+					$node->{$category_field_machine_name}[$node->language][0]['vid'] = intval($term->vid);
+					
+					//$this->obj_api->_log_message( array( 'message' => 'Mapping category to a node', 'status' => 'info', 'details' => "category_field:" . $category_field_machine_name . ", termid:" . $term->tid .  ", taxonomy group:". $content_features['taxonomy_group'] . ", category: ". $category  ), "2" );
+				} else {
+					$this->obj_api->_log_message( array( 'message' => 'Mapping category - search for category id failed', 'status' => 'info', 'details' => "taxonomy_get_term_by_name(category: ". $category . ", taxonomy:". $content_features['taxonomy_group'] .")" ), "2" );
+				}		
 			}
 		}
 
@@ -678,5 +732,50 @@ class Publishthis_Publish {
 		}
 
 	}
+	
+	/** 
+	 * get_category_field_name returns the field name that controls the field_type
+	 *    if type="tags" is passed, it will return the tag field name for the Publish This Content type
+	 * @param string $content_type_machine_name - the machine name of the drupal content type matching the node to be updated
+	 * @param string $category_type - the type of field to be returned ('category' or 'tags')
+	 * @return string $category_field_machine_name  - the field machine name to be updated. 
+	 */
 
+	function get_category_field_name($content_type_machine_name, $category_type="category"){
+		$category_field_machine_name ='';
+		$tag_field_machine_name ='';
+		
+		$fields = array();
+		$instances = field_info_instances('node', $content_type_machine_name);
+		$extra_fields = field_info_extra_fields('node', $content_type_machine_name, 'form');
+		
+		// Fields.
+		foreach ($instances as $name => $instance) {
+			$field = field_info_field($instance['field_name']);
+			$fields[$instance['field_name']] = array(
+					'title' => $instance['label'],
+					'weight' => $instance['widget']['weight'],
+			);
+		}
+		
+		// Non-field elements.
+		foreach ($extra_fields as $name => $extra_field) {
+			$fields[$name] = array(
+					'title' => $extra_field['label'],
+					'weight' => $extra_field['weight'],
+			);
+		}
+		
+		foreach ($fields as $field_name => $field_details){
+			if (preg_match('/category/', $field_name)) { $category_field_machine_name= $field_name; }
+			elseif (preg_match('/\_tag/', $field_name)) { $tag_field_machine_name= $field_name; }
+		}
+		
+		//$this->obj_api->_log_message( array( 'message' => 'entity_properties', 'status' => 'info', 'details' => "properties for " . $content_type_machine_name . ": ". implode( ",", array_keys($fields) ) ), "2" );
+		
+		if ('TAGS' == strtoupper($category_type)) {
+			 return $tag_field_machine_name;
+		} 
+		return $category_field_machine_name;		
+	}
 }

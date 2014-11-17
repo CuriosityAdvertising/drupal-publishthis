@@ -205,17 +205,19 @@ class Publishthis_Endpoint {
 				$this->actionPublish( $feedId );
 				break;
 
-				case "getCategories":
-					if( false ) {
-						$this->sendFailure( "getCategories not supported" );
-						return;
-					}
+			case "getCategories":
+				if( false ) {
+					$this->sendFailure( "getCategories not supported" );
+					return;
+				}
 
-					$this->response_data['categories']= array();
-					$this->actionGetCategories('publish_this_categories');
+				$this->response_data['categories']= array();
+				$this->actionGetCategories('publish_this_categories');
+				//$this->obj_publish ...  get publish get_publishing_actions(); foreach ( $this->publishing_actions as $action ) { $props = unserialize($action['value']);
+				//$this->actionGetCategories($??['taxonomy_group']);
 
-					$this->sendSuccess( "categories fetched" );
-					break;
+				$this->sendSuccess( "categories fetched" );
+				break;
 
 			default:
 				$this->sendFailure( "Empty or bad request made to endpoint" );
