@@ -50,7 +50,7 @@ class Publishthis_Render {
 		case 'text':
 			$sectionContent .= $this->display_text();
 			break;
-
+		
 		default:
 			// do the default display. assume that it is an article, but could also just
 			// be an unknown content type

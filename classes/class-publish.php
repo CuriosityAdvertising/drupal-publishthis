@@ -194,7 +194,8 @@ class Publishthis_Publish {
 			
 			$arrPostCategoryNames = array();
 			$custom_data = $managerCategories = $tags = array();
-			$action_meta['ptauthors'] = null;
+			$action_meta['ptauthors'] = $action_meta['publish_author'];
+			
 			
 			// GET POST CATEGORIES AUTHORS TAGS
 			//$custom_data[*] set by shorttags in api response
@@ -205,17 +206,21 @@ class Publishthis_Publish {
 					case 'CMS' :
 						break;
 					case 'AUTHORS' :
-						foreach ($result->value as $author) {
+						/*
+						 * 
+						 foreach ($result->value as $author) {
 							$custom_data['ptauthors']=$author->id; //last id wins
 						}
 						//if an author is not configured in the admin, and we're given an author id, use it. 
 						//$this->obj_api->_log_message( array( 'message' => 'Found Author in API', 'status' => 'info', 'details' => "action_meta[ptauthors]: ". $action_meta['ptauthors'] . ", custom_data[ptauthors]" . $custom_data['ptauthors']), "2" );
-						if (( (isset($custom_data['ptauthors'])) && (!empty($custom_data['ptauthors'])) && ($custom_data['ptauthors'] > 0)) 
+						if ((false) && ( (isset($custom_data['ptauthors'])) && (!empty($custom_data['ptauthors'])) && ($custom_data['ptauthors'] > 0)) 
 							&& ((!isset($action_meta['publish_author']) || empty($action_meta['publish_author']) || ($action_meta['publish_author']) < 1) )){
 							$action_meta['ptauthors']=$custom_data['ptauthors'];  
 						} else {
 							$action_meta['ptauthors']=$action_meta['publish_author'];
 						}
+						*/
+						
 						break;
 					case 'TAGS' :
 						foreach ($result->value as $tag) {
@@ -325,7 +330,7 @@ class Publishthis_Publish {
 		$body_text = '';
 
 		//print "<pre> content_features:"; print_r($content_features); print "</pre>\n";
-		
+		//print "<pre> curated_content:"; print_r($curated_content); print "</pre>\n";
 		//if don't add new node
 		if( $content_features['ind_add_posts']=='0' && empty($nid) && $content_features['format_type'] == 'Individual' ) return;
 
@@ -365,7 +370,9 @@ class Publishthis_Publish {
 		node_object_prepare($node);
 
 		//$node->uid = $content_features['publish_author'];
+		$this->obj_api->_log_message( array( 'message' => 'Setting authorid', 'status' => 'info', 'details' => "Setting authorid to ptauthors ". $content_features['ptauthors'] . "publish_author=" . $content_features['publish_author'] ), "2" );
 		$node->uid = $content_features['ptauthors'];
+		
 		$node->status = $content_features['content_status'];
 		$node->language = LANGUAGE_NONE;
 		$node->is_new = empty($nid) ? TRUE : FALSE;
@@ -414,6 +421,7 @@ class Publishthis_Publish {
 		}
 		else {
 			$content = $curated_content;
+			//print "<pre> in class-publish setting content = currated_content</pre>\n";
 			$node->title = !empty( $content->title ) ? $content->title : NODE_NO_TITLE;
 
 			$content->feedId = $feed_id;
@@ -433,6 +441,50 @@ class Publishthis_Publish {
 
 			$node->body[$node->language][0]['value']   = $body_text;
 			$node->body[$node->language][0]['summary'] = $this->_build_node_summary($content);
+			
+		//ADD STRUCTURED CONTENT TO NODE FIELDS
+			$structured_field_search_terms = array(
+					'url' 			=> array('url', 'link'), 
+					'publisher' 	=> array('publisher'),
+					'publishDate'	=> array('publish.*date'),
+					'curatedDate'	=> array('curate.*date'),
+					'annotations'	=> array('annotation')
+					);
+			foreach ($content as $key => $val) {
+				if (isset ($structured_field_search_terms[$key])) {
+					//$field_machine_name =$this->
+					$field_machine_name = $this->find_node_field_name($content_features['content_type'], $structured_field_search_terms[$key]);
+					if (! empty($field_machine_name)) { 
+						switch ( $key ) {
+							case 'annotations' :
+								$my_annotation= "";
+								foreach ($val as $annotate) {
+									$my_annotation= $annotate->annotation; //last one wins
+								}
+								$node->{$field_machine_name}[$node->language][0]['value'] = $my_annotation;
+								break;
+								
+							case 'publishDate' :
+								$date = date_create($val);
+								$mydate=date_format($date, 'n.j.y');
+								$node->{$field_machine_name}[$node->language][0]['value'] = $mydate;
+								break;
+								
+							case 'curatedDate' :
+								$date = date_create($val);
+								$mydate=date_format($date, 'Y-m-d H:i:s');
+								$node->{$field_machine_name}[$node->language][0]['value'] = $mydate;
+								break;
+								
+							default :
+								$node->{$field_machine_name}[$node->language][0]['value'] = $val;
+								//$this->obj_api->_log_message( array( 'message' => 'Setting Field', 'status' => 'info', 'details' => "setting field ". $field_machine_name . "=". $val ), "2" );
+								break;
+						
+						}
+					}
+				}
+			}
 		}
 
 		$node->body[$node->language][0]['format']  = 'full_html';
@@ -473,6 +525,8 @@ class Publishthis_Publish {
 				}		
 			}
 		}
+		
+		
 
 		$node = node_submit($node);
 		node_save($node);
@@ -701,8 +755,9 @@ class Publishthis_Publish {
 							$message = array(
 								'message' => 'Import of Feed Failed',
 								'status' => 'error',
-								'details' => 'The Feed Id that failed:' . $feed['feedId'] . ' with the following error:' . $ex->getMessage() );
+								'details' => 'The Feed Id that failed:' . $feed['feedId'] . ' with the following error:' . $ex->getMessage() . ";\n feed_template = " . $action_meta['feed_template'] );
 							$this->obj_api->_log_message( $message, "1" );
+							//print "<pre> in class-publish.php 706: feed: " . $feed['feedId'] . " failed with actioin_meta="; print_r($action_meta); print "</pre>\n";
 							continue;
 						}
 						$intDidPublish++;
@@ -742,7 +797,7 @@ class Publishthis_Publish {
 	 */
 
 	function get_category_field_name($content_type_machine_name, $category_type="category"){
-		$category_field_machine_name ='';
+		/* $category_field_machine_name ='';
 		$tag_field_machine_name ='';
 		
 		$fields = array();
@@ -772,10 +827,56 @@ class Publishthis_Publish {
 		}
 		
 		//$this->obj_api->_log_message( array( 'message' => 'entity_properties', 'status' => 'info', 'details' => "properties for " . $content_type_machine_name . ": ". implode( ",", array_keys($fields) ) ), "2" );
-		
+		**/
+		$field_search_terms_array = array('category');
 		if ('TAGS' == strtoupper($category_type)) {
-			 return $tag_field_machine_name;
+			 $field_search_terms_array = array('\_tag');
 		} 
-		return $category_field_machine_name;		
+
+		return $this->find_node_field_name($content_type_machine_name, $field_search_terms_array);		
+	}
+
+/**
+ * find_node_field_name returns the field name that controls the field_type
+ *
+ * @param string $content_type_machine_name - the machine name of the drupal content type matching the node to be updated
+ * @param string $field_search_terms_array - an array of regular expression terms used to find the desired field.
+ * @return string $field_machine_name  - the field machine name to be updated.
+ * @usage $field_machine_name = $this->find_node_field_name($content_features['content_type'], $structured_field_search_terms[$key]);
+ */
+
+function find_node_field_name($content_type_machine_name, $field_search_terms_array){
+	$field_machine_name ='';
+
+	$fields = array();
+	$instances = field_info_instances('node', $content_type_machine_name);
+	$extra_fields = field_info_extra_fields('node', $content_type_machine_name, 'form');
+
+	// Fields.
+	foreach ($instances as $name => $instance) {
+		$field = field_info_field($instance['field_name']);
+		$fields[$instance['field_name']] = array(
+				'title' => $instance['label'],
+				'weight' => $instance['widget']['weight'],
+		);
+	}
+
+	// Non-field elements.
+	foreach ($extra_fields as $name => $extra_field) {
+		$fields[$name] = array(
+				'title' => $extra_field['label'],
+				'weight' => $extra_field['weight'],
+		);
+	}
+
+	foreach ($fields as $field_name => $field_details){
+		foreach ($field_search_terms_array as $term) { 
+			if (preg_match("/". $term ."/", $field_name)) { $field_machine_name= $field_name; }
+		}
+	}
+
+	//$this->obj_api->_log_message( array( 'message' => 'entity_properties', 'status' => 'info', 'details' => "properties for " . $content_type_machine_name . ": ". implode( ",", array_keys($fields) ) ), "2" );
+
+	return $field_machine_name;
 	}
 }
